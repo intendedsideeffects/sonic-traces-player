@@ -20,23 +20,9 @@ body {
 }
 
 .player-button {
-  position: relative;
-  width: 86px;
-  height: 86px;
-  padding: 0;
-  border: 1px solid rgba(120, 134, 146, 0.55);
-  border-radius: 50%;
-  background: #1b1b1b;
-  color: #8996a0;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  appearance: none;
-  outline: none;
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    opacity 160ms ease;
+position: absolute;
+right: 10px;
+bottom: 10px;
 }
 
 .player-button:hover {
