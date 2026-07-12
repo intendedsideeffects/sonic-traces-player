@@ -292,25 +292,29 @@
   }
 
   playerButton.addEventListener("click", async () => {
-    if (isSoundEnabled()) {
-      stopAudio({ disableSound: true });
-      return;
-    }
+  if (isSoundEnabled()) {
+    stopAudio({ disableSound: true });
+    return;
+  }
 
-    try {
-      await unlockAudio();
+  try {
+    await unlockAudio();
 
-      if (currentPreviewUrl) {
-        await playCurrentPreview();
-      } else {
-        setButtonState("paused", "hover a track");
-      }
-    } catch (error) {
-      console.error("Could not enable sound:", error);
-      setSoundEnabled(false);
-      setButtonState("paused", "try again");
-    }
-  });
+    // Beim Aktivieren niemals den zuletzt geladenen Song starten.
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+
+    currentPreviewUrl = "";
+    currentTrack = null;
+
+    setButtonState("paused", "hover a track");
+  } catch (error) {
+    console.error("Could not enable sound:", error);
+    setSoundEnabled(false);
+    setButtonState("paused", "try again");
+  }
+});
 
   audio.addEventListener("ended", () => {
     audio.volume = 1;
