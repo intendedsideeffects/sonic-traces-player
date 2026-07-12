@@ -361,46 +361,96 @@
     stopAudio("Preview could not load", false);
   });
 
-  async function initialize() {
+async function initialize() {
   const params = new URLSearchParams(window.location.search);
 
-const trackId =
-  params.get("trackId") ||
-  params.get("trackid") ||
-  params.get("deezerTrackId");
+  const trackId =
+    params.get("trackId") ||
+    params.get("trackid") ||
+    params.get("deezerTrackId");
 
-const audioUrl =
-  params.get("audio") ||
-  params.get("url") ||
-  params.get("preview_url");
+  const audioUrl =
+    params.get("audio") ||
+    params.get("url") ||
+    params.get("preview_url");
 
-// URL-Modus mit Deezer Track ID
-if (trackId) {
-  console.log("Standalone URL mode with Deezer Track ID:", trackId);
+  // -----------------------------
+  // Standalone-Modus mit Deezer Track ID
+  // -----------------------------
+  if (trackId) {
+    console.log("Standalone URL mode with Deezer Track ID:", trackId);
 
-  try {
-    setStatus("Loading preview", "○");
+    try {
+      setStatus("Loading preview", "○");
 
-    const payload = await fetchFreshPreview(trackId);
+      const payload = await fetchFreshPreview(trackId);
 
-    console.log("Preview payload:", payload);
+      console.log("Preview payload:", payload);
 
-    const previewUrl =
-      payload.preview ||
-      payload.previewUrl ||
-      payload.preview_url;
+      const previewUrl =
+        payload.preview ||
+        payload.previewUrl ||
+        payload.preview_url;
 
-    if (!previewUrl) {
-      throw new Error("No preview URL returned");
+      if (!previewUrl) {
+        throw new Error("No preview URL returned");
+      }
+
+      const audioElement = document.querySelector("audio");
+
+      if (!audioElement) {
+        throw new Error("No <audio> element found");
+      }
+
+      audioElement.src = previewUrl;
+      audioElement.load();
+
+      try {
+        await audioElement.play();
+        setStatus("Playing", "●");
+      } catch (error) {
+        console.warn("Autoplay blocked:", error);
+        setStatus("Click to play", "○");
+
+        document.addEventListener(
+          "click",
+          async () => {
+            try {
+              await audioElement.play();
+              setStatus("Playing", "●");
+            } catch (playError) {
+              console.error("Playback failed:", playError);
+              setStatus("Playback failed", "○");
+            }
+          },
+          { once: true }
+        );
+      }
+    } catch (error) {
+      console.error("Standalone playback failed:", error);
+      setStatus(error.message || "Playback failed", "○");
+      message.title = String(error);
     }
+
+    return;
+  }
+
+  // -----------------------------
+  // Standalone-Modus mit direkter Audio-URL
+  // -----------------------------
+  if (audioUrl) {
+    console.log("Standalone URL mode with audio URL:", audioUrl);
 
     const audioElement = document.querySelector("audio");
 
     if (!audioElement) {
-      throw new Error("No <audio> element found");
+      const error = new Error("No <audio> element found");
+      console.error(error);
+      setStatus(error.message, "○");
+      return;
     }
 
-    audioElement.src = previewUrl;
+    audioElement.src = audioUrl;
     audioElement.load();
 
     try {
@@ -424,86 +474,13 @@ if (trackId) {
         { once: true }
       );
     }
-  } catch (error) {
-    console.error("Standalone playback failed:", error);
-    setStatus(error.message || "Playback failed", "○");
-    message.title = String(error);
-  }
-
-  return;
-}
-
-// Optionaler direkter Audio-URL-Modus
-if (audioUrl) {
-  console.log("Standalone URL mode with audio URL:", audioUrl);
-
-  const audioElement = document.querySelector("audio");
-
-  if (!audioElement) {
-    const error = new Error("No <audio> element found");
-    console.error(error);
-    setStatus(error.message, "○");
-    return;
-  }
-
-  audioElement.src = audioUrl;
-  audioElement.load();
-
-  try {
-    await audioElement.play();
-    setStatus("Playing", "●");
-  } catch (error) {
-    console.warn("Autoplay blocked:", error);
-    setStatus("Click to play", "○");
-
-    document.addEventListener(
-      "click",
-      async () => {
-        try {
-          await audioElement.play();
-          setStatus("Playing", "●");
-        } catch (playError) {
-          console.error("Playback failed:", playError);
-          setStatus("Playback failed", "○");
-        }
-      },
-      { once: true }
-    );
-  }
-
-  return;
-}
-
-    audioElement.src = audioUrl;
-    audioElement.load();
-
-    try {
-      await audioElement.play();
-      setStatus("Playing", "●");
-    } catch (error) {
-      console.warn("Autoplay was blocked:", error);
-      setStatus("Click here to play", "○");
-
-      // Ein Klick auf die Seite startet den Song
-      const startPlayback = async () => {
-        try {
-          await audioElement.play();
-          setStatus("Playing", "●");
-        } catch (playError) {
-          console.error("Playback failed:", playError);
-          setStatus("Playback failed", "○");
-        }
-      };
-
-      document.addEventListener("click", startPlayback, {
-        once: true
-      });
-    }
 
     return;
   }
 
-  // Extension-Modus: Seite läuft eingebettet in Tableau
+  // -----------------------------
+  // Tableau Extension-Modus
+  // -----------------------------
   try {
     await tableau.extensions.initializeAsync();
 
@@ -520,8 +497,7 @@ if (audioUrl) {
         .join(", ");
 
       throw new Error(
-        `Worksheet "${CONFIG.worksheetName}" not found. ` +
-        `Available: ${available}`
+        `Worksheet "${CONFIG.worksheetName}" not found. Available: ${available}`
       );
     }
 
@@ -535,14 +511,12 @@ if (audioUrl) {
 
   } catch (error) {
     console.error("Extension initialization failed:", error);
-
-    setStatus(
-      "No audio URL received",
-      "○"
-    );
-
+    setStatus(error.message || "Initialization failed", "○");
     message.title = String(error);
   }
 }
+
+initialize();
+})();
 initialize();
 })();
