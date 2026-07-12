@@ -362,40 +362,95 @@
   });
 
   async function initialize() {
-    try {
-      await tableau.extensions.initializeAsync();
+  const params = new URLSearchParams(window.location.search);
 
-      const dashboard =
-        tableau.extensions.dashboardContent.dashboard;
+  // URL-Modus: Seite wurde direkt über eine URL-Action geöffnet
+  const audioUrl =
+    params.get("audio") ||
+    params.get("url") ||
+    params.get("preview_url");
 
-      worksheet = dashboard.worksheets.find(
-        (sheet) => sheet.name === CONFIG.worksheetName
-      );
+  if (audioUrl) {
+    console.log("URL mode detected:", audioUrl);
 
-      if (!worksheet) {
-        const available = dashboard.worksheets
-          .map((sheet) => sheet.name)
-          .join(", ");
+    const audioElement = document.querySelector("audio");
 
-        throw new Error(
-          `Worksheet "${CONFIG.worksheetName}" not found. ` +
-          `Available: ${available}`
-        );
-      }
-
-      worksheet.addEventListener(
-        tableau.TableauEventType.MarkSelectionChanged,
-        handleSelectionChanged
-      );
-
-      setStatus(`Listening to ${CONFIG.worksheetName}`, "○");
-      console.log("Sonic Traces Deezer Player initialized.");
-    } catch (error) {
-      console.error("Extension initialization failed:", error);
-      setStatus(error.message || "Initialization failed", "○");
-      message.title = String(error);
+    if (!audioElement) {
+      const error = new Error("No <audio> element found.");
+      console.error(error);
+      setStatus(error.message, "○");
+      return;
     }
+
+    audioElement.src = audioUrl;
+    audioElement.load();
+
+    try {
+      await audioElement.play();
+      setStatus("Playing", "●");
+    } catch (error) {
+      console.warn("Autoplay was blocked:", error);
+      setStatus("Click here to play", "○");
+
+      // Ein Klick auf die Seite startet den Song
+      const startPlayback = async () => {
+        try {
+          await audioElement.play();
+          setStatus("Playing", "●");
+        } catch (playError) {
+          console.error("Playback failed:", playError);
+          setStatus("Playback failed", "○");
+        }
+      };
+
+      document.addEventListener("click", startPlayback, {
+        once: true
+      });
+    }
+
+    return;
   }
 
-  initialize();
+  // Extension-Modus: Seite läuft eingebettet in Tableau
+  try {
+    await tableau.extensions.initializeAsync();
+
+    const dashboard =
+      tableau.extensions.dashboardContent.dashboard;
+
+    worksheet = dashboard.worksheets.find(
+      (sheet) => sheet.name === CONFIG.worksheetName
+    );
+
+    if (!worksheet) {
+      const available = dashboard.worksheets
+        .map((sheet) => sheet.name)
+        .join(", ");
+
+      throw new Error(
+        `Worksheet "${CONFIG.worksheetName}" not found. ` +
+        `Available: ${available}`
+      );
+    }
+
+    worksheet.addEventListener(
+      tableau.TableauEventType.MarkSelectionChanged,
+      handleSelectionChanged
+    );
+
+    setStatus(`Listening to ${CONFIG.worksheetName}`, "○");
+    console.log("Sonic Traces Deezer Player initialized.");
+
+  } catch (error) {
+    console.error("Extension initialization failed:", error);
+
+    setStatus(
+      "No audio URL received",
+      "○"
+    );
+
+    message.title = String(error);
+  }
+}
+initialize();
 })();
