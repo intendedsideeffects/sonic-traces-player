@@ -2,17 +2,8 @@
   "use strict";
 
   const CONFIG = {
-    worksheetName: "Radial",
     previewEndpoint: "/api/deezer-preview",
-    deezerTrackIdAliases: [
-      "deezer_track_id",
-      "Deezer Track ID",
-      "Deezer Track Id"
-    ],
-    titleFieldAliases: ["Title", "Title1", "Song Name"],
-    artistFieldAliases: ["Artist", "Artist1"],
-    fadeInMs: 450,
-    fadeOutMs: 250,
+    fadeInMs: 350,
     storageKey: "sonicTracesSoundEnabled"
   };
 
@@ -21,11 +12,10 @@
   const playerIcon = document.getElementById("playerIcon");
   const playerHint = document.getElementById("playerHint");
 
-  let worksheet = null;
-  let currentTrack = null;
   let currentPreviewUrl = "";
+  let currentTrackId = "";
   let fadeTimer = null;
-  let requestCounter = 0;
+  let isLoading = false;
 
   function isSoundEnabled() {
     return localStorage.getItem(CONFIG.storageKey) === "true";
@@ -46,12 +36,14 @@
       playerButton.title = "Pause sound";
     } else {
       playerIcon.classList.add("play");
-      playerButton.setAttribute("aria-label", "Enable sound");
-      playerButton.title = "Enable sound";
+      playerButton.setAttribute("aria-label", "Play sound");
+      playerButton.title = "Play sound";
     }
 
     if (state === "loading") {
       playerButton.classList.add("is-loading");
+      playerButton.setAttribute("aria-label", "Loading track");
+      playerButton.title = "Loading track";
     }
 
     playerHint.textContent = hint;
@@ -64,48 +56,38 @@
     }
   }
 
-  function fadeVolume(element, from, to, durationMs, onComplete = () => {}) {
+  function fadeIn() {
     cancelFade();
 
     const startTime = performance.now();
-    element.volume = Math.max(0, Math.min(1, from));
+    audio.volume = 0;
 
     fadeTimer = window.setInterval(() => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(1, elapsed / durationMs);
-
-      element.volume = Math.max(
-        0,
-        Math.min(1, from + (to - from) * progress)
+      const progress = Math.min(
+        1,
+        (performance.now() - startTime) / CONFIG.fadeInMs
       );
+
+      audio.volume = progress;
 
       if (progress >= 1) {
         cancelFade();
-        onComplete();
       }
     }, 30);
   }
 
   function stopAudio({ disableSound = false } = {}) {
-    requestCounter += 1;
     cancelFade();
-
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
     audio.volume = 1;
 
-    currentPreviewUrl = "";
-
     if (disableSound) {
       setSoundEnabled(false);
-      setButtonState("paused", "sound paused");
-    } else {
-      setButtonState(
-        isSoundEnabled() ? "paused" : "paused",
-        isSoundEnabled() ? "hover a track" : "enable sound"
-      );
     }
+
+    setButtonState("paused", currentPreviewUrl ? "play track" : "hover a track");
   }
 
   async function fetchFreshPreview(trackId) {
@@ -122,67 +104,41 @@
     return payload;
   }
 
-async function unlockAudio() {
-  // Sehr kurze lautlose WAV-Datei
-  const silentAudio =
-    "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAAAAAAAAAAA=";
-
-  cancelFade();
-
-  audio.pause();
-  audio.src = silentAudio;
-  audio.volume = 0;
-  audio.load();
-
-  // Entscheidend: echtes HTML-Audio innerhalb des Nutzerklicks starten
-  await audio.play();
-
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.load();
-  audio.volume = 1;
-
-  currentPreviewUrl = "";
-  currentTrack = null;
-
-  setSoundEnabled(true);
-}
-
-  async function playCurrentPreview() {
-    if (!currentPreviewUrl) {
-      setButtonState("paused", "hover a track");
+  async function playCurrentPreview({ userInitiated = false } = {}) {
+    if (!currentPreviewUrl || isLoading) {
+      setButtonState("paused", currentPreviewUrl ? "play track" : "hover a track");
       return;
     }
 
-    setButtonState("loading", "");
-
-    audio.src = currentPreviewUrl;
-    audio.load();
-    audio.volume = 0;
-
     try {
+      audio.pause();
+      audio.src = currentPreviewUrl;
+      audio.load();
+      audio.volume = 0;
+
       await audio.play();
+
+      if (userInitiated) {
+        setSoundEnabled(true);
+      }
+
       setButtonState("playing", "");
-      fadeVolume(audio, 0, 1, CONFIG.fadeInMs);
+      fadeIn();
     } catch (error) {
       console.warn("Playback needs a user click:", error);
       setSoundEnabled(false);
-      setButtonState("paused", "enable sound");
+      setButtonState("paused", "play track");
     }
   }
 
-  async function loadAndPlayTrack(trackId, title = "", artist = "") {
-    const localRequest = ++requestCounter;
-    currentTrack = { trackId, title, artist };
-
+  async function loadTrack(trackId) {
+    currentTrackId = trackId;
+    currentPreviewUrl = "";
+    isLoading = true;
     setButtonState("loading", "");
 
     try {
       const payload = await fetchFreshPreview(trackId);
-
-      if (localRequest !== requestCounter) {
-        return;
-      }
 
       currentPreviewUrl =
         payload.preview_url ||
@@ -194,152 +150,37 @@ async function unlockAudio() {
         throw new Error("No preview URL returned");
       }
 
+      isLoading = false;
+
       if (isSoundEnabled()) {
         await playCurrentPreview();
       } else {
-        setButtonState("paused", "enable sound");
+        setButtonState("paused", "play track");
       }
     } catch (error) {
+      isLoading = false;
       console.error("Could not load preview:", error);
       setButtonState("paused", "preview unavailable");
     }
   }
 
-  function normalize(value) {
-    return String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ");
-  }
-
-  function fieldMatches(fieldName, aliases) {
-    const normalizedField = normalize(fieldName);
-
-    return aliases.some((alias) => {
-      const normalizedAlias = normalize(alias);
-
-      return (
-        normalizedField === normalizedAlias ||
-        normalizedField.startsWith(`${normalizedAlias} (`) ||
-        normalizedField.includes(normalizedAlias)
-      );
-    });
-  }
-
-  function getCellValue(row, columns, aliases) {
-    const index = columns.findIndex((column) =>
-      fieldMatches(column.fieldName, aliases)
-    );
-
-    if (index < 0 || !row[index]) {
-      return "";
+  playerButton.addEventListener("click", async () => {
+    if (!audio.paused) {
+      stopAudio({ disableSound: true });
+      return;
     }
 
-    const cell = row[index];
-
-    return String(
-      cell.formattedValue ?? cell.value ?? cell.nativeValue ?? ""
-    ).trim();
-  }
-
-  function extractSelectedTracks(markCollection) {
-    const tracks = [];
-
-    for (const table of markCollection.data ?? []) {
-      const columns = table.columns ?? [];
-
-      for (const row of table.data ?? []) {
-        tracks.push({
-          deezerTrackId: getCellValue(
-            row,
-            columns,
-            CONFIG.deezerTrackIdAliases
-          ),
-          title: getCellValue(
-            row,
-            columns,
-            CONFIG.titleFieldAliases
-          ),
-          artist: getCellValue(
-            row,
-            columns,
-            CONFIG.artistFieldAliases
-          )
-        });
-      }
+    if (!currentPreviewUrl) {
+      setButtonState("paused", "hover a track");
+      return;
     }
 
-    return tracks;
-  }
-
-  async function handleSelectionChanged() {
-    try {
-      const selectedMarks =
-        await worksheet.getSelectedMarksAsync();
-
-      const tracks = extractSelectedTracks(selectedMarks);
-      const selectedTrack =
-        tracks.find((track) => track.deezerTrackId);
-
-      if (!selectedTrack) {
-        return;
-      }
-
-      await loadAndPlayTrack(
-        selectedTrack.deezerTrackId,
-        selectedTrack.title,
-        selectedTrack.artist
-      );
-    } catch (error) {
-      console.error("Could not read selected marks:", error);
-    }
-  }
-
- playerButton.addEventListener("click", async () => {
-  if (isSoundEnabled()) {
-    stopAudio({ disableSound: true });
-    return;
-  }
-
-  try {
-    await unlockAudio();
-
-    // Noch keinen Song starten.
-    // Erst der nächste Hover soll Audio laden und abspielen.
-    setButtonState("paused", "hover a track");
-  } catch (error) {
-    console.error("Could not enable sound:", error);
-    setSoundEnabled(false);
-    setButtonState("paused", "try again");
-  }
-});
-
-  try {
-    await unlockAudio();
-
-    // Beim Aktivieren niemals den zuletzt geladenen Song starten.
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-
-    currentPreviewUrl = "";
-    currentTrack = null;
-
-    setButtonState("paused", "hover a track");
-  } catch (error) {
-    console.error("Could not enable sound:", error);
-    setSoundEnabled(false);
-    setButtonState("paused", "try again");
-  }
-});
+    await playCurrentPreview({ userInitiated: true });
+  });
 
   audio.addEventListener("ended", () => {
     audio.volume = 1;
-    setButtonState(
-      isSoundEnabled() ? "paused" : "paused",
-      isSoundEnabled() ? "hover a track" : "enable sound"
-    );
+    setButtonState("paused", "hover a track");
   });
 
   audio.addEventListener("error", () => {
@@ -350,7 +191,6 @@ async function unlockAudio() {
   async function initialize() {
     const params = new URLSearchParams(window.location.search);
 
-    const unlockMode = params.get("unlock") === "1";
     const trackId =
       params.get("trackId") ||
       params.get("trackid") ||
@@ -361,16 +201,8 @@ async function unlockAudio() {
       params.get("url") ||
       params.get("preview_url");
 
-    if (unlockMode) {
-      setButtonState(
-        isSoundEnabled() ? "paused" : "paused",
-        isSoundEnabled() ? "hover a track" : "enable sound"
-      );
-      return;
-    }
-
     if (trackId) {
-      await loadAndPlayTrack(trackId);
+      await loadTrack(trackId);
       return;
     }
 
@@ -380,42 +212,16 @@ async function unlockAudio() {
       if (isSoundEnabled()) {
         await playCurrentPreview();
       } else {
-        setButtonState("paused", "enable sound");
+        setButtonState("paused", "play track");
       }
 
       return;
     }
 
-    // Desktop/Extension mode remains available.
-    try {
-      await tableau.extensions.initializeAsync();
-
-      const dashboard =
-        tableau.extensions.dashboardContent.dashboard;
-
-      worksheet = dashboard.worksheets.find(
-        (sheet) => sheet.name === CONFIG.worksheetName
-      );
-
-      if (!worksheet) {
-        throw new Error(
-          `Worksheet "${CONFIG.worksheetName}" not found`
-        );
-      }
-
-      worksheet.addEventListener(
-        tableau.TableauEventType.MarkSelectionChanged,
-        handleSelectionChanged
-      );
-
-      setButtonState(
-        isSoundEnabled() ? "paused" : "paused",
-        isSoundEnabled() ? "hover a track" : "enable sound"
-      );
-    } catch (error) {
-      console.error("Extension initialization failed:", error);
-      setButtonState("paused", "enable sound");
-    }
+    // Start page: no random/default song is loaded.
+    currentTrackId = "";
+    currentPreviewUrl = "";
+    setButtonState("paused", "hover a track");
   }
 
   initialize();
