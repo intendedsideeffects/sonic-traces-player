@@ -11,28 +11,193 @@
     ],
     titleFieldAliases: ["Title", "Title1", "Song Name"],
     artistFieldAliases: ["Artist", "Artist1"],
-    eventFieldAliases: ["Event", "Event Name"],
-    fadeInMs: 800,
-    fadeOutMs: 600
+    fadeInMs: 450,
+    fadeOutMs: 250,
+    storageKey: "sonicTracesSoundEnabled"
   };
 
   const audio = document.getElementById("audioPlayer");
-  const indicator = document.getElementById("indicator");
-  const message = document.getElementById("message");
-  const nowPlaying = document.getElementById("nowPlaying");
-  const trackTitle = document.getElementById("trackTitle");
-  const trackArtist = document.getElementById("trackArtist");
-  const enableSound = document.getElementById("enableSound");
+  const playerButton = document.getElementById("playerButton");
+  const playerIcon = document.getElementById("playerIcon");
+  const playerHint = document.getElementById("playerHint");
 
   let worksheet = null;
-  let pendingTrack = null;
+  let currentTrack = null;
+  let currentPreviewUrl = "";
   let fadeTimer = null;
   let requestCounter = 0;
-  let currentTrackId = "";
 
-  function setStatus(text, symbol = "○") {
-    message.textContent = text;
-    indicator.textContent = symbol;
+  function isSoundEnabled() {
+    return localStorage.getItem(CONFIG.storageKey) === "true";
+  }
+
+  function setSoundEnabled(enabled) {
+    localStorage.setItem(CONFIG.storageKey, String(enabled));
+  }
+
+  function setButtonState(state, hint = "") {
+    playerButton.classList.remove("is-playing", "is-loading");
+    playerIcon.className = "player-icon";
+
+    if (state === "playing") {
+      playerButton.classList.add("is-playing");
+      playerIcon.classList.add("pause");
+      playerButton.setAttribute("aria-label", "Pause sound");
+      playerButton.title = "Pause sound";
+    } else {
+      playerIcon.classList.add("play");
+      playerButton.setAttribute("aria-label", "Enable sound");
+      playerButton.title = "Enable sound";
+    }
+
+    if (state === "loading") {
+      playerButton.classList.add("is-loading");
+    }
+
+    playerHint.textContent = hint;
+  }
+
+  function cancelFade() {
+    if (fadeTimer !== null) {
+      window.clearInterval(fadeTimer);
+      fadeTimer = null;
+    }
+  }
+
+  function fadeVolume(element, from, to, durationMs, onComplete = () => {}) {
+    cancelFade();
+
+    const startTime = performance.now();
+    element.volume = Math.max(0, Math.min(1, from));
+
+    fadeTimer = window.setInterval(() => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+
+      element.volume = Math.max(
+        0,
+        Math.min(1, from + (to - from) * progress)
+      );
+
+      if (progress >= 1) {
+        cancelFade();
+        onComplete();
+      }
+    }, 30);
+  }
+
+  function stopAudio({ disableSound = false } = {}) {
+    requestCounter += 1;
+    cancelFade();
+
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    audio.volume = 1;
+
+    currentPreviewUrl = "";
+
+    if (disableSound) {
+      setSoundEnabled(false);
+      setButtonState("paused", "sound paused");
+    } else {
+      setButtonState(
+        isSoundEnabled() ? "paused" : "paused",
+        isSoundEnabled() ? "hover a track" : "enable sound"
+      );
+    }
+  }
+
+  async function fetchFreshPreview(trackId) {
+    const url =
+      `${CONFIG.previewEndpoint}?id=${encodeURIComponent(trackId)}`;
+
+    const response = await fetch(url, { cache: "no-store" });
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || "Preview request failed");
+    }
+
+    return payload;
+  }
+
+  async function unlockAudio() {
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if (AudioContextClass) {
+      const context = new AudioContextClass();
+      await context.resume();
+
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+
+      gain.gain.value = 0;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.03);
+    }
+
+    setSoundEnabled(true);
+  }
+
+  async function playCurrentPreview() {
+    if (!currentPreviewUrl) {
+      setButtonState("paused", "hover a track");
+      return;
+    }
+
+    setButtonState("loading", "");
+
+    audio.src = currentPreviewUrl;
+    audio.load();
+    audio.volume = 0;
+
+    try {
+      await audio.play();
+      setButtonState("playing", "");
+      fadeVolume(audio, 0, 1, CONFIG.fadeInMs);
+    } catch (error) {
+      console.warn("Playback needs a user click:", error);
+      setSoundEnabled(false);
+      setButtonState("paused", "enable sound");
+    }
+  }
+
+  async function loadAndPlayTrack(trackId, title = "", artist = "") {
+    const localRequest = ++requestCounter;
+    currentTrack = { trackId, title, artist };
+
+    setButtonState("loading", "");
+
+    try {
+      const payload = await fetchFreshPreview(trackId);
+
+      if (localRequest !== requestCounter) {
+        return;
+      }
+
+      currentPreviewUrl =
+        payload.preview_url ||
+        payload.previewUrl ||
+        payload.preview ||
+        "";
+
+      if (!currentPreviewUrl) {
+        throw new Error("No preview URL returned");
+      }
+
+      if (isSoundEnabled()) {
+        await playCurrentPreview();
+      } else {
+        setButtonState("paused", "enable sound");
+      }
+    } catch (error) {
+      console.error("Could not load preview:", error);
+      setButtonState("paused", "preview unavailable");
+    }
   }
 
   function normalize(value) {
@@ -73,182 +238,6 @@
     ).trim();
   }
 
-  function cancelFade() {
-    if (fadeTimer !== null) {
-      window.clearInterval(fadeTimer);
-      fadeTimer = null;
-    }
-  }
-
-  function fadeVolume(
-    element,
-    from,
-    to,
-    durationMs,
-    onComplete = () => {}
-  ) {
-    cancelFade();
-
-    const startTime = performance.now();
-    element.volume = Math.max(0, Math.min(1, from));
-
-    fadeTimer = window.setInterval(() => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(1, elapsed / durationMs);
-
-      element.volume = Math.max(
-        0,
-        Math.min(1, from + (to - from) * progress)
-      );
-
-      if (progress >= 1) {
-        cancelFade();
-        onComplete();
-      }
-    }, 30);
-  }
-
-  function clearPlayerUi(reason = "Ready") {
-    nowPlaying.hidden = true;
-    enableSound.hidden = true;
-    setStatus(reason, "○");
-  }
-
-  function stopAudio(reason = "Ready", fade = true) {
-    pendingTrack = null;
-    currentTrackId = "";
-    requestCounter += 1;
-
-    if (audio.paused || !fade) {
-      cancelFade();
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      audio.volume = 1;
-      clearPlayerUi(reason);
-      return;
-    }
-
-    fadeVolume(
-      audio,
-      audio.volume,
-      0,
-      CONFIG.fadeOutMs,
-      () => {
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
-        audio.volume = 1;
-        clearPlayerUi(reason);
-      }
-    );
-  }
-
-  async function fetchFreshPreview(trackId) {
-    const url =
-      `${CONFIG.previewEndpoint}?id=${encodeURIComponent(trackId)}`;
-
-    const response = await fetch(url, { cache: "no-store" });
-    const payload = await response.json();
-
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Preview request failed");
-    }
-
-    return payload;
-  }
-
-  async function startPlayback(track, previewPayload) {
-    const localRequest = ++requestCounter;
-
-    trackTitle.textContent =
-      track.title || previewPayload.title || "Unknown title";
-
-    trackArtist.textContent =
-      track.artist || previewPayload.artist || "";
-
-    nowPlaying.hidden = false;
-    enableSound.hidden = true;
-    setStatus("Loading preview…", "◌");
-
-    if (!audio.paused) {
-      await new Promise((resolve) => {
-        fadeVolume(
-          audio,
-          audio.volume,
-          0,
-          CONFIG.fadeOutMs,
-          resolve
-        );
-      });
-    }
-
-    if (localRequest !== requestCounter) {
-      return;
-    }
-
-    audio.pause();
-    audio.src = previewPayload.preview_url;
-    audio.load();
-    audio.volume = 0;
-    currentTrackId = track.deezerTrackId;
-
-    try {
-      await audio.play();
-
-      if (localRequest !== requestCounter) {
-        audio.pause();
-        return;
-      }
-
-      pendingTrack = null;
-      setStatus("Playing", "●");
-
-      fadeVolume(
-        audio,
-        0,
-        1,
-        CONFIG.fadeInMs
-      );
-    } catch (error) {
-      pendingTrack = {
-        track,
-        previewPayload,
-      };
-
-      enableSound.hidden = false;
-      setStatus("Enable sound", "○");
-      console.warn("Playback needs a user click:", error);
-    }
-  }
-
-  async function playSelectedTrack(track) {
-    if (!track.deezerTrackId) {
-      stopAudio("No Deezer track ID");
-      return;
-    }
-
-    if (
-      track.deezerTrackId === currentTrackId &&
-      !audio.paused
-    ) {
-      return;
-    }
-
-    setStatus("Getting fresh preview…", "◌");
-
-    try {
-      const previewPayload = await fetchFreshPreview(
-        track.deezerTrackId
-      );
-
-      await startPlayback(track, previewPayload);
-    } catch (error) {
-      console.error(error);
-      stopAudio(error.message || "Preview unavailable", false);
-    }
-  }
-
   function extractSelectedTracks(markCollection) {
     const tracks = [];
 
@@ -271,12 +260,7 @@
             row,
             columns,
             CONFIG.artistFieldAliases
-          ),
-          event: getCellValue(
-            row,
-            columns,
-            CONFIG.eventFieldAliases
-          ),
+          )
         });
       }
     }
@@ -290,231 +274,127 @@
         await worksheet.getSelectedMarksAsync();
 
       const tracks = extractSelectedTracks(selectedMarks);
+      const selectedTrack =
+        tracks.find((track) => track.deezerTrackId);
 
-      console.log("Selected Radial marks:", tracks);
-
-      if (tracks.length === 0) {
-        stopAudio("Ready");
+      if (!selectedTrack) {
         return;
       }
 
-      const selectedTrack =
-        tracks.find((track) => track.deezerTrackId) ?? tracks[0];
-
-      await playSelectedTrack(selectedTrack);
+      await loadAndPlayTrack(
+        selectedTrack.deezerTrackId,
+        selectedTrack.title,
+        selectedTrack.artist
+      );
     } catch (error) {
       console.error("Could not read selected marks:", error);
-      stopAudio("Selection error", false);
     }
   }
 
-  enableSound.addEventListener("click", () => {
-    if (!pendingTrack) {
-      setStatus("No pending track", "○");
+  playerButton.addEventListener("click", async () => {
+    if (isSoundEnabled()) {
+      stopAudio({ disableSound: true });
       return;
     }
 
-    const pending = pendingTrack;
+    try {
+      await unlockAudio();
 
-    audio.src = pending.previewPayload.preview_url;
-    audio.load();
-    audio.volume = 0;
-
-    const playPromise = audio.play();
-
-    if (!playPromise) {
-      setStatus("Playback unavailable", "○");
-      return;
+      if (currentPreviewUrl) {
+        await playCurrentPreview();
+      } else {
+        setButtonState("paused", "hover a track");
+      }
+    } catch (error) {
+      console.error("Could not enable sound:", error);
+      setSoundEnabled(false);
+      setButtonState("paused", "try again");
     }
-
-    playPromise
-      .then(() => {
-        pendingTrack = null;
-        enableSound.hidden = true;
-        currentTrackId = pending.track.deezerTrackId;
-        setStatus("Playing", "●");
-
-        fadeVolume(
-          audio,
-          0,
-          1,
-          CONFIG.fadeInMs
-        );
-      })
-      .catch((error) => {
-        console.error("Manual audio error:", error);
-        setStatus(
-          `${error.name}: ${error.message}`,
-          "○"
-        );
-      });
   });
 
   audio.addEventListener("ended", () => {
-    currentTrackId = "";
     audio.volume = 1;
-    clearPlayerUi("Preview ended");
+    setButtonState(
+      isSoundEnabled() ? "paused" : "paused",
+      isSoundEnabled() ? "hover a track" : "enable sound"
+    );
   });
 
   audio.addEventListener("error", () => {
     console.error("Audio element error:", audio.error);
-    stopAudio("Preview could not load", false);
+    setButtonState("paused", "preview unavailable");
   });
 
-async function initialize() {
-  const params = new URLSearchParams(window.location.search);
+  async function initialize() {
+    const params = new URLSearchParams(window.location.search);
 
-  const trackId =
-    params.get("trackId") ||
-    params.get("trackid") ||
-    params.get("deezerTrackId");
+    const unlockMode = params.get("unlock") === "1";
+    const trackId =
+      params.get("trackId") ||
+      params.get("trackid") ||
+      params.get("deezerTrackId");
 
-  const audioUrl =
-    params.get("audio") ||
-    params.get("url") ||
-    params.get("preview_url");
+    const audioUrl =
+      params.get("audio") ||
+      params.get("url") ||
+      params.get("preview_url");
 
-  // -----------------------------
-  // Standalone-Modus mit Deezer Track ID
-  // -----------------------------
-  if (trackId) {
-    console.log("Standalone URL mode with Deezer Track ID:", trackId);
-
-    try {
-      setStatus("Loading preview", "○");
-
-      const payload = await fetchFreshPreview(trackId);
-
-      console.log("Preview payload:", payload);
-
-      const previewUrl =
-        payload.preview ||
-        payload.previewUrl ||
-        payload.preview_url;
-
-      if (!previewUrl) {
-        throw new Error("No preview URL returned");
-      }
-
-      const audioElement = document.querySelector("audio");
-
-      if (!audioElement) {
-        throw new Error("No <audio> element found");
-      }
-
-      audioElement.src = previewUrl;
-      audioElement.load();
-
-      try {
-        await audioElement.play();
-        setStatus("Playing", "●");
-      } catch (error) {
-        console.warn("Autoplay blocked:", error);
-        setStatus("Click to play", "○");
-
-        document.addEventListener(
-          "click",
-          async () => {
-            try {
-              await audioElement.play();
-              setStatus("Playing", "●");
-            } catch (playError) {
-              console.error("Playback failed:", playError);
-              setStatus("Playback failed", "○");
-            }
-          },
-          { once: true }
-        );
-      }
-    } catch (error) {
-      console.error("Standalone playback failed:", error);
-      setStatus(error.message || "Playback failed", "○");
-      message.title = String(error);
-    }
-
-    return;
-  }
-
-  // -----------------------------
-  // Standalone-Modus mit direkter Audio-URL
-  // -----------------------------
-  if (audioUrl) {
-    console.log("Standalone URL mode with audio URL:", audioUrl);
-
-    const audioElement = document.querySelector("audio");
-
-    if (!audioElement) {
-      const error = new Error("No <audio> element found");
-      console.error(error);
-      setStatus(error.message, "○");
+    if (unlockMode) {
+      setButtonState(
+        isSoundEnabled() ? "paused" : "paused",
+        isSoundEnabled() ? "hover a track" : "enable sound"
+      );
       return;
     }
 
-    audioElement.src = audioUrl;
-    audioElement.load();
+    if (trackId) {
+      await loadAndPlayTrack(trackId);
+      return;
+    }
 
+    if (audioUrl) {
+      currentPreviewUrl = audioUrl;
+
+      if (isSoundEnabled()) {
+        await playCurrentPreview();
+      } else {
+        setButtonState("paused", "enable sound");
+      }
+
+      return;
+    }
+
+    // Desktop/Extension mode remains available.
     try {
-      await audioElement.play();
-      setStatus("Playing", "●");
+      await tableau.extensions.initializeAsync();
+
+      const dashboard =
+        tableau.extensions.dashboardContent.dashboard;
+
+      worksheet = dashboard.worksheets.find(
+        (sheet) => sheet.name === CONFIG.worksheetName
+      );
+
+      if (!worksheet) {
+        throw new Error(
+          `Worksheet "${CONFIG.worksheetName}" not found`
+        );
+      }
+
+      worksheet.addEventListener(
+        tableau.TableauEventType.MarkSelectionChanged,
+        handleSelectionChanged
+      );
+
+      setButtonState(
+        isSoundEnabled() ? "paused" : "paused",
+        isSoundEnabled() ? "hover a track" : "enable sound"
+      );
     } catch (error) {
-      console.warn("Autoplay blocked:", error);
-      setStatus("Click to play", "○");
-
-      document.addEventListener(
-        "click",
-        async () => {
-          try {
-            await audioElement.play();
-            setStatus("Playing", "●");
-          } catch (playError) {
-            console.error("Playback failed:", playError);
-            setStatus("Playback failed", "○");
-          }
-        },
-        { once: true }
-      );
+      console.error("Extension initialization failed:", error);
+      setButtonState("paused", "enable sound");
     }
-
-    return;
   }
 
-  // -----------------------------
-  // Tableau Extension-Modus
-  // -----------------------------
-  try {
-    await tableau.extensions.initializeAsync();
-
-    const dashboard =
-      tableau.extensions.dashboardContent.dashboard;
-
-    worksheet = dashboard.worksheets.find(
-      (sheet) => sheet.name === CONFIG.worksheetName
-    );
-
-    if (!worksheet) {
-      const available = dashboard.worksheets
-        .map((sheet) => sheet.name)
-        .join(", ");
-
-      throw new Error(
-        `Worksheet "${CONFIG.worksheetName}" not found. Available: ${available}`
-      );
-    }
-
-    worksheet.addEventListener(
-      tableau.TableauEventType.MarkSelectionChanged,
-      handleSelectionChanged
-    );
-
-    setStatus(`Listening to ${CONFIG.worksheetName}`, "○");
-    console.log("Sonic Traces Deezer Player initialized.");
-
-  } catch (error) {
-    console.error("Extension initialization failed:", error);
-    setStatus(error.message || "Initialization failed", "○");
-    message.title = String(error);
-  }
-}
-
-initialize();
+  initialize();
 })();
