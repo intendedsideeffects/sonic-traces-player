@@ -296,11 +296,24 @@ async function unlockAudio() {
     }
   }
 
-  playerButton.addEventListener("click", async () => {
+ playerButton.addEventListener("click", async () => {
   if (isSoundEnabled()) {
     stopAudio({ disableSound: true });
     return;
   }
+
+  try {
+    await unlockAudio();
+
+    // Noch keinen Song starten.
+    // Erst der nächste Hover soll Audio laden und abspielen.
+    setButtonState("paused", "hover a track");
+  } catch (error) {
+    console.error("Could not enable sound:", error);
+    setSoundEnabled(false);
+    setButtonState("paused", "try again");
+  }
+});
 
   try {
     await unlockAudio();
