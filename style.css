@@ -14,15 +14,29 @@ body {
 }
 
 #app {
-  position: relative;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 8px;
 }
 
 .player-button {
-position: absolute;
-right: 10px;
-bottom: 10px;
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(120, 134, 146, 0.55);
+  border-radius: 50%;
+  background: #1b1b1b;
+  color: #8996a0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  outline: none;
 }
 
 .player-hint {
@@ -46,22 +60,14 @@ bottom: 10px;
 
 .record-ring {
   position: absolute;
-  inset: 9px;
+  inset: 4px;
   border: 1px solid rgba(120, 134, 146, 0.22);
   border-radius: 50%;
 }
 
 .record-ring::after {
-  content: "";
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(120, 134, 146, 0.45);
-  border-radius: 50%;
-  background: #1b1b1b;
+  width: 4px;
+  height: 4px;
 }
 
 .player-icon {
@@ -71,19 +77,17 @@ bottom: 10px;
 }
 
 .player-icon.play {
-  width: 0;
-  height: 0;
-  margin-left: 5px;
-  border-top: 9px solid transparent;
-  border-bottom: 9px solid transparent;
-  border-left: 14px solid currentColor;
+  margin-left: 2px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid currentColor;
 }
 
 .player-icon.pause {
-  width: 14px;
-  height: 18px;
-  border-left: 4px solid currentColor;
-  border-right: 4px solid currentColor;
+  width: 8px;
+  height: 11px;
+  border-left: 2px solid currentColor;
+  border-right: 2px solid currentColor;
 }
 
 .player-button.is-playing .record-ring {
@@ -96,14 +100,7 @@ bottom: 10px;
 }
 
 .player-hint {
-  min-height: 13px;
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
-  opacity: 0.72;
-  text-align: center;
+  display: none;
 }
 
 @keyframes rotate-record {
