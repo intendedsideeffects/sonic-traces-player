@@ -1,1 +1,30 @@
-<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sonic Traces Player</title><link rel="stylesheet" href="/style.css?v=1"></head><body><main id="app" aria-live="polite"><button id="enableSound" type="button" hidden>Enable sound</button><div id="status" class="status"><span id="indicator">○</span><span id="message">Ready</span></div><div id="nowPlaying" class="now-playing" hidden><div id="trackTitle" class="title"></div><div id="trackArtist" class="artist"></div></div><audio id="audioPlayer" preload="none"></audio></main><script src="/tableau.extensions.1.latest.js"></script><script src="/player.js?v=1"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sonic Traces Player</title>
+  <link rel="stylesheet" href="/style.css?v=2">
+</head>
+<body>
+  <main id="app">
+    <button
+      id="playerButton"
+      class="player-button"
+      type="button"
+      aria-label="Enable sound"
+      title="Enable sound"
+    >
+      <span class="record-ring" aria-hidden="true"></span>
+      <span id="playerIcon" class="player-icon play" aria-hidden="true"></span>
+    </button>
+
+    <p id="playerHint" class="player-hint">enable sound</p>
+
+    <audio id="audioPlayer" preload="none"></audio>
+  </main>
+
+  <script src="/tableau.extensions.1.latest.js"></script>
+  <script src="/player.js?v=2"></script>
+</body>
+</html>
