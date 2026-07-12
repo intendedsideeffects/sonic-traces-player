@@ -122,26 +122,31 @@
     return payload;
   }
 
-  async function unlockAudio() {
-    const AudioContextClass =
-      window.AudioContext || window.webkitAudioContext;
+async function unlockAudio() {
+  // Sehr kurze lautlose WAV-Datei
+  const silentAudio =
+    "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAAAAAAAAAAA=";
 
-    if (AudioContextClass) {
-      const context = new AudioContextClass();
-      await context.resume();
+  cancelFade();
 
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
+  audio.pause();
+  audio.src = silentAudio;
+  audio.volume = 0;
+  audio.load();
 
-      gain.gain.value = 0;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.03);
-    }
+  // Entscheidend: echtes HTML-Audio innerhalb des Nutzerklicks starten
+  await audio.play();
 
-    setSoundEnabled(true);
-  }
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  audio.volume = 1;
+
+  currentPreviewUrl = "";
+  currentTrack = null;
+
+  setSoundEnabled(true);
+}
 
   async function playCurrentPreview() {
     if (!currentPreviewUrl) {
