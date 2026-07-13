@@ -4,7 +4,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: transparent;
+  background: #1b1b1b;
   color: #788692;
   font-family: Arial, sans-serif;
 }
@@ -21,6 +21,7 @@ body {
   align-items: flex-start;
   justify-content: flex-start;
   padding: 8px;
+  background: #1b1b1b;
 }
 
 .player-button {
